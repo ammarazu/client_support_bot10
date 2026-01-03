@@ -4,56 +4,111 @@ from fastapi.responses import HTMLResponse
 import os
 from openai import OpenAI
 
-# ---------------- APP ----------------
+# ================= APP =================
 app = FastAPI(title="Customer Support AI Agent")
 
-# ---------------- OPENAI ----------------
+# ================= OPENAI =================
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# ---------------- MEMORY STORE ----------------
+# ================= MEMORY =================
 memory_store = {}
 
-# ---------------- REQUEST MODEL ----------------
+# ================= REQUEST MODEL =================
 class ChatRequest(BaseModel):
     session_id: str
     user_input: str
 
-# ---------------- SYSTEM PROMPT ----------------
+# ================= SYSTEM PROMPT =================
 SYSTEM_PROMPT = """
-You are a professional customer support agent for this business.
+You are a professional customer support AI agent.
 
 Rules:
-- Answer only using the business information provided
-- Be polite, clear, and professional
-- Do NOT invent information
-- If something is not available, suggest contacting human support
+- Answer only business-related questions
+- Be polite, clear, and helpful
+- Do NOT invent prices or policies
+- If unsure, escalate to human support
 """
 
-# ---------------- BUSINESS RULES (11.6) ----------------
+# ================= BUSINESS CONTEXT (DEMO) =================
 BUSINESS_CONTEXT = """
-Business Information:
-- The business offers Cash on Delivery (COD)
-- COD is available nationwide
-- Delivery time is 3–5 working days
-- Product prices are fixed and shown on the product page
-- Refunds are accepted within 7 days of delivery
-- For complex issues, customers should contact human support
+Business Type: Demo E-commerce Store (Portfolio Project)
+
+Shipping:
+- Nationwide delivery available
+- Delivery time: 3–5 business days
+
+Payment:
+- Cash on Delivery (COD) available
+- Online payments coming soon
+
+Returns:
+- Returns accepted within 7 days
+- Item must be unused and original
+- Refund approval handled by human support
+
+Support Rule:
+- If question is unclear or sensitive, say:
+  "Please contact our human support team for assistance."
 """
 
-# ---------------- ROUTES ----------------
-
+# ================= ROOT =================
 @app.get("/")
 def root():
     return {"status": "Customer Support AI Agent running successfully"}
 
-# ✅ SERVE CHAT UI
+# ================= CHAT UI =================
 @app.get("/chat", response_class=HTMLResponse)
 def chat_page():
-    file_path = os.path.join(os.path.dirname(__file__), "chat.html")
-    with open(file_path, "r", encoding="utf-8") as f:
-        return f.read()
+    return """
+    <html>
+    <head>
+        <title>Customer Support</title>
+        <style>
+            body { font-family: Arial; background: #f4f4f4; }
+            .chat { max-width: 600px; margin: auto; background: white; padding: 20px; }
+            .msg { margin: 10px 0; }
+            .bot { color: green; }
+            .user { color: blue; }
+        </style>
+    </head>
+    <body>
+        <div class="chat">
+            <h2>Customer Support</h2>
+            <div id="messages"></div>
+            <input id="msg" placeholder="Type your message..." style="width:80%">
+            <button onclick="send()">Send</button>
+        </div>
 
-# ✅ HANDLE CHAT API
+        <script>
+            const session_id = "demo-session";
+
+            function send() {
+                const msg = document.getElementById("msg").value;
+                document.getElementById("messages").innerHTML +=
+                    `<div class='msg user'><b>You:</b> ${msg}</div>`;
+
+                fetch("/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        session_id: session_id,
+                        user_input: msg
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById("messages").innerHTML +=
+                        `<div class='msg bot'><b>AI:</b> ${data.reply}</div>`;
+                });
+
+                document.getElementById("msg").value = "";
+            }
+        </script>
+    </body>
+    </html>
+    """
+
+# ================= CHAT API =================
 @app.post("/chat")
 def chat_api(req: ChatRequest):
     session_id = req.session_id
@@ -61,20 +116,18 @@ def chat_api(req: ChatRequest):
     if session_id not in memory_store:
         memory_store[session_id] = []
 
-    # Save user message
     memory_store[session_id].append({
         "role": "user",
         "content": req.user_input
     })
 
-    # Prepare messages
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "system", "content": BUSINESS_CONTEXT},
     ]
+
     messages.extend(memory_store[session_id])
 
-    # OpenAI call
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=messages
@@ -82,7 +135,6 @@ def chat_api(req: ChatRequest):
 
     assistant_reply = response.choices[0].message.content
 
-    # Save assistant reply
     memory_store[session_id].append({
         "role": "assistant",
         "content": assistant_reply
